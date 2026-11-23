@@ -1,0 +1,17 @@
+{
+  "docker-project": {
+    "projects": [
+      {
+        "name": "xiaomi-camera-daily-story",
+        "path": "docker"
+      }
+    ]
+  },
+  "data-share": {
+    "shares": [
+      {
+        "name": "xiaomi-camera-daily-story/videos"
+      }
+    ]
+  }
+}

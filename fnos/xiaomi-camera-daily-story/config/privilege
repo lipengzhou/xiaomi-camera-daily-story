@@ -1,0 +1,7 @@
+{
+  "defaults": {
+    "run-as": "package"
+  },
+  "username": "xiaomi-camera-daily-story",
+  "groupname": "xiaomi-camera-daily-story"
+}

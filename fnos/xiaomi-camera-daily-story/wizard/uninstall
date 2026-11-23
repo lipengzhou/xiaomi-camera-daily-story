@@ -1,0 +1,60 @@
+[
+  {
+    "stepTitle": "私有数据",
+    "items": [
+      {
+        "type": "radio",
+        "field": "wizard_private_data_action",
+        "label": "应用私有配置和同步历史",
+        "initValue": "keep",
+        "options": [
+          {
+            "label": "保留，重新安装后继续使用（推荐）",
+            "value": "keep"
+          },
+          {
+            "label": "删除已知的私有配置、历史、授权和主密钥",
+            "value": "delete"
+          }
+        ],
+        "rules": [
+          {
+            "required": true,
+            "message": "请选择私有数据处理方式"
+          }
+        ]
+      },
+      {
+        "type": "radio",
+        "field": "wizard_authorization_action",
+        "label": "米家账号授权",
+        "initValue": "keep",
+        "options": [
+          {
+            "label": "保留加密授权（推荐）",
+            "value": "keep"
+          },
+          {
+            "label": "仅删除米家加密授权",
+            "value": "delete"
+          }
+        ],
+        "rules": [
+          {
+            "required": true,
+            "message": "请选择授权处理方式"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "stepTitle": "视频保留",
+    "items": [
+      {
+        "type": "tips",
+        "helpText": "无论选择哪种私有数据处理方式，共享目录中的视频都不会被删除。"
+      }
+    ]
+  }
+]

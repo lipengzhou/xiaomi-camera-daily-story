@@ -1,0 +1,17 @@
+.git
+.gitignore
+.dev
+node_modules
+dist
+coverage
+*.log
+.env
+.env.*
+*.mp4
+*.m3u8
+fnos
+.github
+*.fpk
+*.tar
+*.tgz
+tmp

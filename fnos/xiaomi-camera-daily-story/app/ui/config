@@ -1,0 +1,17 @@
+{
+  ".url": {
+    "xiaomi-camera-daily-story.main": {
+      "title": "米家摄像头每日故事",
+      "icon": "images/icon_{0}.png",
+      "type": "iframe",
+      "protocol": "",
+      "gatewayPrefix": "/app/xiaomi-camera-daily-story",
+      "gatewaySocket": "app.sock",
+      "url": "/app/xiaomi-camera-daily-story",
+      "allUsers": false,
+      "control": {
+        "accessPerm": "readonly"
+      }
+    }
+  }
+}

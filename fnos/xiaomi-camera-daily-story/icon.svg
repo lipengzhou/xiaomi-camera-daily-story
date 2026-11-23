@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="米家摄像头每日故事">
+  <defs>
+    <linearGradient id="background" x1="28" y1="20" x2="228" y2="236" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FF8A3D"/>
+      <stop offset="1" stop-color="#ED5A2B"/>
+    </linearGradient>
+    <linearGradient id="lens" x1="92" y1="78" x2="163" y2="157" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#48566B"/>
+      <stop offset="1" stop-color="#172033"/>
+    </linearGradient>
+  </defs>
+  <rect width="256" height="256" rx="56" fill="url(#background)"/>
+  <path d="M72 70c0-16 13-29 29-29h54c16 0 29 13 29 29v76c0 31-25 56-56 56s-56-25-56-56V70Z" fill="#FFF"/>
+  <circle cx="128" cy="111" r="43" fill="#E8EDF4"/>
+  <circle cx="128" cy="111" r="32" fill="url(#lens)"/>
+  <circle cx="117" cy="99" r="9" fill="#A9DDF7" opacity=".92"/>
+  <path d="M102 174h52" stroke="#D8DEE8" stroke-width="10" stroke-linecap="round"/>
+  <path d="M86 215h84" stroke="#FFF" stroke-width="12" stroke-linecap="round" opacity=".94"/>
+  <path d="m190 44 5 11 11 5-11 5-5 11-5-11-11-5 11-5 5-11Z" fill="#FFF3B0"/>
+</svg>

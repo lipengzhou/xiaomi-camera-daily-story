@@ -1,0 +1,178 @@
+#!/bin/bash
+
+set -u
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=./_lib
+source "${SCRIPT_DIR}/_lib"
+
+CONTAINER_NAME="xiaomi-camera-daily-story-app"
+PROJECT_NAME="xiaomi-camera-daily-story"
+APP_NAME="${TRIM_APPNAME:-xiaomi-camera-daily-story}"
+COMPOSE_FILE="${TRIM_APPDEST}/docker/docker-compose.yaml"
+STATE_FILE="${XIAOMI_WATCHER_STATE_FILE:-/run/xiaomi-camera-daily-story-watcher.state}"
+LOG_FILE="${TRIM_PKGVAR}/authorized-mounts-watcher.log"
+LOCK_DIR="${XIAOMI_WATCHER_LOCK_DIR:-/run/xiaomi-camera-daily-story-watcher.lock}"
+PID_FILE="${XIAOMI_WATCHER_PID_FILE:-/run/xiaomi-camera-daily-story-watcher.pid}"
+RECREATE_FLAG="${XIAOMI_WATCHER_RECREATE_FLAG:-/run/xiaomi-camera-daily-story-recreating}"
+INTERVAL="${XIAOMI_WATCHER_INTERVAL:-3}"
+ONCE="${XIAOMI_WATCHER_ONCE:-0}"
+ALLOW_NON_ROOT="${XIAOMI_WATCHER_ALLOW_NON_ROOT:-0}"
+
+watcher_log() {
+  local message="$1"
+  printf '%s %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$message" >> "$LOG_FILE"
+  if [ "$(wc -c < "$LOG_FILE" 2>/dev/null || echo 0)" -gt 1048576 ]; then
+    tail -n 500 "$LOG_FILE" > "${LOG_FILE}.tmp" 2>/dev/null \
+      && mv "${LOG_FILE}.tmp" "$LOG_FILE"
+  fi
+}
+
+query_authorized_paths() {
+  if [ -n "${XIAOMI_WATCHER_PATHS_FILE:-}" ]; then
+    cat "$XIAOMI_WATCHER_PATHS_FILE"
+    return 0
+  fi
+  local runuser_cmd="runuser"
+  [ -x /usr/sbin/runuser ] && runuser_cmd=/usr/sbin/runuser
+  "$runuser_cmd" -u postgres -- psql -d appcenter -At \
+    -c "SELECT p.path FROM app_authorization_path p JOIN app a ON a.id = p.app_id WHERE a.app_name = '${APP_NAME}' ORDER BY p.path" \
+    2>/dev/null
+}
+
+normalize_authorized_paths() {
+  local line
+  while IFS= read -r line || [ -n "$line" ]; do
+    line="${line%$'\r'}"
+    [ -n "$line" ] || continue
+    line="${line%/}"
+    [ -n "$line" ] || continue
+    case "$line" in
+      /*) ;;
+      *) watcher_log "忽略非绝对授权路径"; continue ;;
+    esac
+    [ "$line" = "/" ] && { watcher_log "忽略根目录授权"; continue; }
+    case "/${line#/}/" in
+      */../*|*/./*) watcher_log "忽略包含 . 或 .. 的授权路径"; continue ;;
+    esac
+    printf '%s\n' "$line"
+  done | sort -u
+}
+
+container_mount_pairs() {
+  docker inspect "$CONTAINER_NAME" \
+    --format '{{range .Mounts}}{{printf "%s|%s\n" .Source .Destination}}{{end}}' \
+    2>/dev/null
+}
+
+container_mounts_match() {
+  local desired="$1"
+  local pairs
+  pairs="$(container_mount_pairs)" || return 1
+  local path
+  local digest
+  local target
+  local expected
+  local matched=0
+  while IFS= read -r path; do
+    [ -n "$path" ] || continue
+    digest="$(printf '%s' "$path" | sha256sum | cut -c1-12)"
+    target="/authorized-videos-${digest}"
+    expected="${path}|${target}"
+    printf '%s\n' "$pairs" | grep -Fqx -- "$expected" || return 1
+    matched=$((matched + 1))
+  done <<< "$desired"
+
+  local authorized_count
+  authorized_count="$(printf '%s\n' "$pairs" | grep -c '/authorized-videos-' || true)"
+  [ "$authorized_count" -eq "$matched" ]
+}
+
+render_mounts() {
+  local desired="$1"
+  (printf '%s\n' "$desired" | stage_render_authorized_video_mounts_from_lines)
+}
+
+recreate_container() {
+  local desired="$1"
+  if [ -z "${TRIM_UID:-}" ] || [ -z "${TRIM_GID:-}" ] || [ -z "${TRIM_DATA_SHARE_PATHS:-}" ]; then
+    watcher_log "缺少 Docker Compose 环境变量，跳过重建"
+    return 1
+  fi
+  render_mounts "$desired" || return 1
+  touch "$RECREATE_FLAG" 2>/dev/null || true
+  docker compose --project-name "$PROJECT_NAME" --file "$COMPOSE_FILE" \
+    up -d --force-recreate
+  local status=$?
+  rm -f "$RECREATE_FLAG"
+  return "$status"
+}
+
+main() {
+  if [ "$ALLOW_NON_ROOT" != "1" ] && [ "$(id -u)" -ne 0 ]; then
+    watcher_log "watcher 需要 root 权限"
+    exit 1
+  fi
+  if ! mkdir -m 700 "$LOCK_DIR" 2>/dev/null; then
+    watcher_log "已有 watcher 在运行"
+    exit 0
+  fi
+  printf '%s\n' "$$" > "$PID_FILE"
+  trap 'rmdir "$LOCK_DIR" 2>/dev/null || true; rm -f "$PID_FILE"' EXIT
+
+  watcher_log "watcher 启动"
+  local last_hash=""
+  [ -f "$STATE_FILE" ] && last_hash="$(cat "$STATE_FILE" 2>/dev/null || true)"
+
+  while true; do
+    if [ ! -d "$TRIM_APPDEST" ]; then
+      watcher_log "应用目录已移除，退出"
+      exit 0
+    fi
+
+    local desired
+    desired="$(query_authorized_paths | normalize_authorized_paths)" \
+      || { watcher_log "读取授权目录失败"; sleep 2; continue; }
+    local hash
+    hash="$(printf '%s\n' "$desired" | sha256sum | cut -d' ' -f1)"
+    local running=false
+    docker inspect --format '{{.State.Running}}' "$CONTAINER_NAME" 2>/dev/null \
+      | grep -qx true && running=true
+
+    if [ "$hash" != "$last_hash" ]; then
+      if [ "$running" = true ] && container_mounts_match "$desired"; then
+        last_hash="$hash"
+        printf '%s\n' "$hash" > "$STATE_FILE"
+      elif [ "$running" = true ]; then
+        watcher_log "授权目录变化，重建容器"
+        if recreate_container "$desired"; then
+          last_hash="$hash"
+          printf '%s\n' "$hash" > "$STATE_FILE"
+          watcher_log "容器重建完成"
+        else
+          watcher_log "容器重建失败"
+        fi
+      else
+        if render_mounts "$desired"; then
+          last_hash="$hash"
+          printf '%s\n' "$hash" > "$STATE_FILE"
+          watcher_log "应用已停止，已更新挂载配置"
+        else
+          watcher_log "更新挂载配置失败"
+        fi
+      fi
+    elif [ "$running" = true ] && ! container_mounts_match "$desired"; then
+      watcher_log "容器挂载与授权目录不一致，重建容器"
+      if recreate_container "$desired"; then
+        watcher_log "容器重建完成"
+      else
+        watcher_log "容器重建失败"
+      fi
+    fi
+
+    [ "$ONCE" = "1" ] && exit 0
+    sleep "$INTERVAL"
+  done
+}
+
+main "$@"

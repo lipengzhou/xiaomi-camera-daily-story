@@ -1,0 +1,11 @@
+#!/bin/bash
+
+set -u
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=./_lib
+source "${SCRIPT_DIR}/_lib"
+
+stage_require_environment
+
+exit 0

@@ -1,0 +1,14 @@
+#!/bin/bash
+
+set -u
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=./_lib
+source "${SCRIPT_DIR}/_lib"
+
+# fnOS 会在 config_callback 前处理 Docker project。必须在 init 阶段先写入
+# 新的授权挂载列表，供 status watcher 或后续启动使用。
+stage_require_environment
+stage_render_authorized_video_mounts
+
+exit 0

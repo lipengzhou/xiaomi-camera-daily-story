@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light" />
+    <title>米家摄像头每日故事同步</title>
+    <link rel="stylesheet" href="styles.css?v=0.1.7" />
+  </head>
+  <body>
+    <div class="shell">
+      <header class="hero">
+        <div>
+          <p class="eyebrow">PRIVATE CAMERA ARCHIVE</p>
+          <h1>米家摄像头<br /><span>每日故事同步</span></h1>
+          <p class="hero-copy">扫码授权、按月归档、定时补齐。凭证加密保存，视频只写入当前运行环境声明的归档目录。</p>
+        </div>
+        <div class="hero-status" id="hero-status">
+          <span class="status-dot"></span>
+          <span>正在连接应用服务</span>
+        </div>
+      </header>
+
+      <main class="grid">
+        <section class="panel auth-panel">
+          <div class="panel-heading">
+            <div><span class="step">01</span><h2>米家授权</h2></div>
+            <span class="badge" id="auth-badge">未检查</span>
+          </div>
+          <p class="muted" id="credential-summary">凭证使用 AES-256-GCM 加密保存，不写入项目文件。</p>
+          <div class="profile-card hidden" id="profile-card">
+            <div class="profile-avatar">
+              <img id="profile-avatar" alt="小米账号头像" />
+              <span id="profile-avatar-fallback" aria-hidden="true">米</span>
+            </div>
+            <div class="profile-details">
+              <strong id="profile-name">小米用户</strong>
+              <span id="profile-id">账号 ID：—</span>
+              <span id="profile-authorized-at">授权时间：—</span>
+            </div>
+          </div>
+          <div class="auth-actions">
+            <button class="primary" id="start-login">生成登录二维码</button>
+            <button class="ghost danger" id="clear-login">清除授权</button>
+          </div>
+          <div class="qr-stage hidden" id="qr-stage">
+            <img id="qr-image" alt="小米账号登录二维码" />
+            <p id="qr-message">请扫码并确认登录</p>
+          </div>
+        </section>
+
+        <section class="panel config-panel">
+          <div class="panel-heading">
+            <div><span class="step">02</span><h2>同步配置</h2></div>
+            <span class="badge neutral" id="save-badge">未保存</span>
+          </div>
+          <form id="config-form">
+            <label class="video-location">
+              <span>视频归档目录</span>
+              <select id="video-storage">
+                <option value="data-share">正在读取运行环境</option>
+              </select>
+              <small id="video-storage-help">视频保存到 家庭名称/摄像头名称/YYYY/MM。</small>
+            </label>
+            <label>
+              <span>家庭</span>
+              <div class="inline-control">
+                <select id="home-select"><option value="">请先扫码并读取家庭</option></select>
+                <button type="button" class="ghost compact" id="load-devices">刷新设备</button>
+              </div>
+            </label>
+            <label>
+              <span>摄像头</span>
+              <div class="inline-control">
+                <select id="device-select" disabled><option value="">请先选择家庭</option></select>
+                <button type="button" class="ghost compact" id="add-device" disabled>添加摄像头</button>
+              </div>
+            </label>
+            <div class="selected-devices-block">
+              <div class="selected-devices-heading">
+                <span>已配置摄像头</span><strong id="selected-device-count">0 台</strong>
+              </div>
+              <div id="selected-devices" class="selected-devices"><p class="empty compact-empty">尚未添加摄像头</p></div>
+            </div>
+            <div class="schedule-row">
+              <label class="switch-label">
+                <span>每日定时同步</span>
+                <span class="switch"><input id="schedule-enabled" type="checkbox" /><span></span></span>
+              </label>
+              <label>
+                <span>执行时间</span>
+                <input id="schedule-time" type="time" value="08:17" />
+              </label>
+              <div class="timezone"><span>时区</span><strong>Asia/Shanghai</strong></div>
+            </div>
+            <button class="primary wide" type="submit">保存配置</button>
+          </form>
+        </section>
+
+        <section class="panel sync-panel">
+          <div class="panel-heading">
+            <div><span class="step">03</span><h2>同步状态</h2></div>
+            <span class="badge neutral" id="sync-badge">空闲</span>
+          </div>
+          <div class="sync-summary">
+            <div><span>当前文件</span><strong id="current-file">—</strong></div>
+            <div><span>进度</span><strong id="sync-progress">0 / 0</strong></div>
+            <div><span>下次定时</span><strong id="next-run">未开启</strong></div>
+          </div>
+          <div class="progress-track"><div id="progress-bar"></div></div>
+          <button class="accent wide" id="sync-now">立即同步缺失视频</button>
+          <p class="muted center">已存在且非空的目标文件会自动跳过。</p>
+        </section>
+
+        <section class="panel history-panel">
+          <div class="panel-heading">
+            <div><span class="step">04</span><h2>最近记录</h2></div>
+            <button class="ghost compact" id="refresh-status">刷新</button>
+          </div>
+          <div id="history" class="history-list"><p class="empty">暂无同步记录</p></div>
+        </section>
+
+        <section class="panel system-panel">
+          <div class="panel-heading"><div><span class="step">05</span><h2>运行环境</h2></div></div>
+          <div class="environment-details" id="environment-details"></div>
+          <div class="environment-issues" id="environment-issues"></div>
+          <div class="capabilities" id="capabilities"></div>
+        </section>
+      </main>
+    </div>
+
+    <div class="toast hidden" id="toast"></div>
+    <script type="module" src="app.js?v=0.1.7"></script>
+  </body>
+</html>

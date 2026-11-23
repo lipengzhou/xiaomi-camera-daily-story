@@ -1,0 +1,25 @@
+services:
+  app:
+    image: xiaomi-camera-daily-story:0.1.7
+    container_name: xiaomi-camera-daily-story-app
+    restart: unless-stopped
+    user: "${TRIM_UID}:${TRIM_GID}"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      NODE_ENV: production
+      XIAOMI_STORY_RUNTIME: fnos
+      TZ: Asia/Shanghai
+    volumes:
+      - "${TRIM_APPDEST}:/app/target:rw"
+      - "${TRIM_APPDEST}/docker:/app/target/docker:ro"
+      - "${TRIM_PKGETC}:/config:rw"
+      - "${TRIM_PKGVAR}:/data:rw"
+      - "${TRIM_DATA_SHARE_PATHS}:/videos:rw"
+      # __XIAOMI_AUTHORIZED_VIDEO_VOLUMES__
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    stop_grace_period: 30s

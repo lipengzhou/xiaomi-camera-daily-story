@@ -1,0 +1,4 @@
+#!/bin/bash
+
+# fnOS 负责移除容器和应用目录；data-share 中的视频始终保留。
+exit 0

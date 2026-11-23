@@ -1,0 +1,247 @@
+#!/bin/bash
+
+stage_log() {
+  local message="$1"
+  if [ -n "${TRIM_TEMP_LOGFILE:-}" ]; then
+    printf '%s\n' "$message" >> "$TRIM_TEMP_LOGFILE"
+  else
+    printf '%s\n' "$message" >&2
+  fi
+}
+
+stage_fail() {
+  stage_log "$1"
+  exit 1
+}
+
+stage_require_variable() {
+  local name="$1"
+  if [ -z "${!name:-}" ]; then
+    stage_fail "缺少 fnOS 环境变量：${name}。"
+  fi
+}
+
+stage_require_path() {
+  local name="$1"
+  stage_require_variable "$name"
+  local value="${!name}"
+  stage_validate_path_value "$name" "$value"
+}
+
+stage_validate_path_value() {
+  local name="$1"
+  local value="$2"
+  case "$value" in
+    /*) ;;
+    *) stage_fail "${name} 必须是绝对路径。" ;;
+  esac
+  if [ "$value" = "/" ]; then
+    stage_fail "${name} 不得指向根目录。"
+  fi
+  case "/${value#/}/" in
+    */../*|*/./*) stage_fail "${name} 不得包含 . 或 .. 路径段。" ;;
+  esac
+}
+
+stage_require_environment() {
+  stage_require_path TRIM_APPDEST
+  stage_require_path TRIM_PKGETC
+  stage_require_path TRIM_PKGVAR
+  stage_require_variable TRIM_UID
+  stage_require_variable TRIM_GID
+  stage_require_path TRIM_DATA_SHARE_PATHS
+
+  case "$TRIM_UID" in
+    *[!0-9]*|'') stage_fail "TRIM_UID 必须是数字。" ;;
+  esac
+  case "$TRIM_GID" in
+    *[!0-9]*|'') stage_fail "TRIM_GID 必须是数字。" ;;
+  esac
+  case "$TRIM_DATA_SHARE_PATHS" in
+    *:*) stage_fail "本应用只允许一个 data-share，TRIM_DATA_SHARE_PATHS 不得包含多个路径。" ;;
+  esac
+  local accessible_path
+  local accessible_paths=()
+  IFS=':' read -r -a accessible_paths <<< "${TRIM_DATA_ACCESSIBLE_PATHS:-}"
+  for accessible_path in "${accessible_paths[@]}"; do
+    [ -n "$accessible_path" ] || continue
+    stage_validate_path_value TRIM_DATA_ACCESSIBLE_PATHS "$accessible_path"
+  done
+}
+
+stage_require_runtime_directories() {
+  local directories=(
+    "$TRIM_APPDEST"
+    "$TRIM_PKGETC"
+    "$TRIM_PKGVAR"
+    "$TRIM_DATA_SHARE_PATHS"
+  )
+  local accessible_path
+  local accessible_paths=()
+  IFS=':' read -r -a accessible_paths <<< "${TRIM_DATA_ACCESSIBLE_PATHS:-}"
+  for accessible_path in "${accessible_paths[@]}"; do
+    [ -n "$accessible_path" ] && directories+=("$accessible_path")
+  done
+  local directory
+  for directory in "${directories[@]}"; do
+    if [ ! -d "$directory" ]; then
+      stage_fail "运行目录不存在：${directory}。"
+    fi
+    if [ ! -w "$directory" ]; then
+      stage_fail "运行目录不可写：${directory}。"
+    fi
+  done
+}
+
+stage_lookup_username() {
+  local uid="$1"
+  local passwd_entry=""
+  if command -v getent >/dev/null 2>&1; then
+    passwd_entry="$(getent passwd "$uid" 2>/dev/null || true)"
+  fi
+  if [ -n "$passwd_entry" ]; then
+    printf '%s' "${passwd_entry%%:*}"
+  else
+    printf '用户 %s' "$uid"
+  fi
+}
+
+stage_format_authorized_path_label() {
+  local accessible_path="${1%/}"
+  local volume_id
+  local user_id
+  local username
+  local relative_path
+
+  if [[ "$accessible_path" =~ ^/vol([1-9][0-9]*)/([0-9]+)(/.*)?$ ]]; then
+    volume_id="${BASH_REMATCH[1]}"
+    user_id="${BASH_REMATCH[2]}"
+    relative_path="${BASH_REMATCH[3]:-}"
+    username="$(stage_lookup_username "$user_id")"
+    printf '存储空间 %s/%s 的文件%s' "$volume_id" "$username" "$relative_path"
+    return 0
+  fi
+  if [[ "$accessible_path" =~ ^/vol([1-9][0-9]*)/@appshare(/.*)?$ ]]; then
+    volume_id="${BASH_REMATCH[1]}"
+    relative_path="${BASH_REMATCH[2]:-}"
+    printf '存储空间 %s/应用文件%s' "$volume_id" "$relative_path"
+    return 0
+  fi
+  if [[ "$accessible_path" =~ ^/vol([1-9][0-9]*)/@team(/.*)?$ ]]; then
+    volume_id="${BASH_REMATCH[1]}"
+    relative_path="${BASH_REMATCH[2]:-}"
+    printf '存储空间 %s/团队文件%s' "$volume_id" "$relative_path"
+    return 0
+  fi
+
+  accessible_path="${accessible_path##*/}"
+  printf '%s' "${accessible_path:-授权文件夹}"
+}
+
+stage_render_authorized_video_mounts_from_lines() {
+  local docker_dir="${TRIM_APPDEST}/docker"
+  local template="${docker_dir}/docker-compose.template.yaml"
+  local output="${docker_dir}/docker-compose.yaml"
+  local metadata="${TRIM_PKGETC}/authorized-video-roots.tsv"
+  [ -f "$template" ] || stage_fail "缺少 Docker Compose 模板：${template}。"
+  command -v sha256sum >/dev/null 2>&1 || stage_fail "系统缺少 sha256sum，无法生成授权目录 ID。"
+
+  local snippet_temp
+  local compose_temp
+  local metadata_temp
+  snippet_temp="$(mktemp "${docker_dir}/.authorized-volumes.XXXXXX")" \
+    || stage_fail "无法创建授权目录挂载临时文件。"
+  compose_temp="$(mktemp "${docker_dir}/.docker-compose.XXXXXX")" \
+    || stage_fail "无法创建 Compose 临时文件。"
+  metadata_temp="$(mktemp "${TRIM_PKGETC}/.authorized-video-roots.XXXXXX")" \
+    || stage_fail "无法创建授权目录元数据临时文件。"
+
+  local accessible_path
+  local digest
+  local escaped_source
+  local label
+  local target
+  local seen_paths=$'\n'
+  while IFS= read -r accessible_path || [ -n "$accessible_path" ]; do
+    accessible_path="${accessible_path%$'\r'}"
+    [ -n "$accessible_path" ] || continue
+    accessible_path="${accessible_path%/}"
+    [ -n "$accessible_path" ] || continue
+    case "$seen_paths" in
+      *$'\n'"$accessible_path"$'\n'*) continue ;;
+    esac
+    seen_paths="${seen_paths}${accessible_path}"$'\n'
+    stage_validate_path_value TRIM_DATA_ACCESSIBLE_PATHS "$accessible_path"
+    case "$accessible_path" in
+      *$'\n'*|*$'\r'*|*$'\t'*)
+        rm -f -- "$snippet_temp" "$compose_temp" "$metadata_temp"
+        stage_fail "授权目录路径不得包含换行或制表符。"
+        ;;
+    esac
+    digest="$(printf '%s' "$accessible_path" | sha256sum | cut -c1-12)"
+    label="$(stage_format_authorized_path_label "$accessible_path")"
+    [ -n "$label" ] || label="授权文件夹-${digest}"
+    case "$label" in
+      *$'\n'*|*$'\r'*|*$'\t'*)
+        rm -f -- "$snippet_temp" "$compose_temp" "$metadata_temp"
+        stage_fail "授权目录名称不得包含换行或制表符。"
+        ;;
+    esac
+    escaped_source="$(printf '%s' "$accessible_path" | sed "s/'/''/g")"
+    target="/authorized-videos-${digest}"
+    printf "      - type: bind\n        source: '%s'\n        target: %s\n        read_only: false\n" \
+      "$escaped_source" "$target" >> "$snippet_temp"
+    printf 'accessible:%s\t%s\t%s\n' "$digest" "$label" "$target" >> "$metadata_temp"
+  done
+
+  local marker_found=false
+  local line
+  while IFS= read -r line || [ -n "$line" ]; do
+    if [ "$line" = "      # __XIAOMI_AUTHORIZED_VIDEO_VOLUMES__" ]; then
+      cat "$snippet_temp" >> "$compose_temp"
+      marker_found=true
+    else
+      printf '%s\n' "$line" >> "$compose_temp"
+    fi
+  done < "$template"
+  if [ "$marker_found" != true ]; then
+    rm -f -- "$snippet_temp" "$compose_temp" "$metadata_temp"
+    stage_fail "Docker Compose 模板缺少授权目录挂载标记。"
+  fi
+
+  chmod 644 "$compose_temp"
+  chmod 644 "$metadata_temp"
+  mv -f -- "$compose_temp" "$output"
+  mv -f -- "$metadata_temp" "$metadata"
+  rm -f -- "$snippet_temp"
+}
+
+stage_render_authorized_video_mounts() {
+  local accessible_path
+  local accessible_paths=()
+  IFS=':' read -r -a accessible_paths <<< "${TRIM_DATA_ACCESSIBLE_PATHS:-}"
+  stage_render_authorized_video_mounts_from_lines \
+    < <(printf '%s\n' "${accessible_paths[@]}")
+}
+
+stage_remove_file() {
+  local root="$1"
+  local filename="$2"
+  case "$root" in
+    /*) ;;
+    *) stage_fail "拒绝从非绝对路径删除私有文件。" ;;
+  esac
+  if [ "$root" = "/" ]; then
+    stage_fail "拒绝从根目录删除私有文件。"
+  fi
+  if [ ! -d "$root" ]; then
+    return 0
+  fi
+  local canonical_root
+  canonical_root="$(cd -- "$root" && pwd -P)" \
+    || stage_fail "无法解析私有目录：${root}。"
+  if [ "$canonical_root" = "/" ]; then
+    stage_fail "拒绝从解析后的根目录删除私有文件。"
+  fi
+  rm -f -- "${canonical_root}/${filename}"
+}

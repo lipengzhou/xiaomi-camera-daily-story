@@ -1,0 +1,63 @@
+name: Bug 报告
+description: 报告可复现的问题
+title: "[bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        请先移除日志中的账号、Cookie、token、二维码 ID、NAS 域名和签名 URL。
+  - type: input
+    id: app-version
+    attributes:
+      label: 应用版本
+      placeholder: "0.1.7"
+    validations:
+      required: true
+  - type: input
+    id: fnos-version
+    attributes:
+      label: fnOS 版本与架构
+      placeholder: "fnOS x.y.z / x86_64 或 arm64"
+    validations:
+      required: true
+  - type: dropdown
+    id: deployment
+    attributes:
+      label: 部署方式
+      options:
+        - FPK 应用中心
+        - Docker Compose 手动部署
+        - Mac 本地开发
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: 实际现象
+      description: 发生了什么，最好附上脱敏后的截图或日志。
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 预期行为
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤
+      placeholder: |
+        1. ...
+        2. ...
+        3. ...
+    validations:
+      required: true
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: 安全检查
+      options:
+        - label: 我已移除密码、Cookie、token、二维码 ID、NAS 域名和签名 URL
+          required: true

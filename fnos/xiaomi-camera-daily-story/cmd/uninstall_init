@@ -1,0 +1,44 @@
+#!/bin/bash
+
+set -u
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=./_lib
+source "${SCRIPT_DIR}/_lib"
+
+stage_require_path TRIM_APPDEST
+stage_require_path TRIM_PKGETC
+stage_require_path TRIM_PKGVAR
+
+private_data_action="${wizard_private_data_action:-keep}"
+authorization_action="${wizard_authorization_action:-keep}"
+
+case "$private_data_action" in
+  keep) ;;
+  delete)
+    stage_remove_file "$TRIM_PKGVAR" "config.json"
+    stage_remove_file "$TRIM_PKGVAR" "sync-history.json"
+    stage_remove_file "$TRIM_PKGVAR" "credentials.enc"
+    stage_remove_file "$TRIM_PKGETC" "credential.key"
+    ;;
+  *) stage_fail "无效的私有数据处理选项。" ;;
+esac
+
+case "$authorization_action" in
+  keep) ;;
+  delete)
+    stage_remove_file "$TRIM_PKGVAR" "credentials.enc"
+    ;;
+  *) stage_fail "无效的米家授权处理选项。" ;;
+esac
+
+app_root="$(cd -- "$TRIM_APPDEST" && pwd -P)" \
+  || stage_fail "无法解析应用目录：${TRIM_APPDEST}。"
+if [ "$app_root" = "/" ]; then
+  stage_fail "拒绝从根目录清理 Unix Socket。"
+fi
+if [ -S "${app_root}/app.sock" ]; then
+  rm -f -- "${app_root}/app.sock"
+fi
+
+exit 0
