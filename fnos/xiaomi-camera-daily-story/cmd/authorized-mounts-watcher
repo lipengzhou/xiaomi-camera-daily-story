@@ -33,8 +33,10 @@ query_authorized_paths() {
     cat "$XIAOMI_WATCHER_PATHS_FILE"
     return 0
   fi
-  local runuser_cmd="runuser"
-  [ -x /usr/sbin/runuser ] && runuser_cmd=/usr/sbin/runuser
+  local runuser_cmd="${XIAOMI_WATCHER_RUNUSER:-runuser}"
+  if [ -z "${XIAOMI_WATCHER_RUNUSER:-}" ] && [ -x /usr/sbin/runuser ]; then
+    runuser_cmd=/usr/sbin/runuser
+  fi
   "$runuser_cmd" -u postgres -- psql -d appcenter -At \
     -c "SELECT p.path FROM app_authorization_path p JOIN app a ON a.id = p.app_id WHERE a.app_name = '${APP_NAME}' ORDER BY p.path" \
     2>/dev/null
@@ -130,9 +132,11 @@ main() {
       exit 0
     fi
 
+    local raw_paths
     local desired
-    desired="$(query_authorized_paths | normalize_authorized_paths)" \
-      || { watcher_log "读取授权目录失败"; sleep 2; continue; }
+    raw_paths="$(query_authorized_paths)" \
+      || { watcher_log "读取授权目录失败"; sleep "$INTERVAL"; continue; }
+    desired="$(printf '%s\n' "$raw_paths" | normalize_authorized_paths)"
     local hash
     hash="$(printf '%s\n' "$desired" | sha256sum | cut -d' ' -f1)"
     local running=false

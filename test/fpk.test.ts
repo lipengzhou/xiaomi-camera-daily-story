@@ -477,6 +477,7 @@ test("FPK watcher renders mounts from the appcenter authorization database", asy
         TRIM_DATA_SHARE_PATHS: videos,
         XIAOMI_WATCHER_ONCE: "1",
         XIAOMI_WATCHER_ALLOW_NON_ROOT: "1",
+        XIAOMI_WATCHER_RUNUSER: path.join(bin, "runuser"),
         XIAOMI_WATCHER_LOCK_DIR: path.join(root, "watcher.lock"),
         XIAOMI_WATCHER_STATE_FILE: path.join(root, "watcher.state"),
         XIAOMI_WATCHER_PID_FILE: path.join(root, "watcher.pid"),
