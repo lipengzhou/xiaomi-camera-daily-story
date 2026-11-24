@@ -5,95 +5,63 @@ import path from "node:path";
 import { test } from "node:test";
 
 import { MemoryCredentialStore } from "../src/credentials.js";
-import {
-  createDarwinPlatformServices,
-  createDarwinRuntimePaths,
-} from "../src/platform/darwin.js";
-import {
-  LinuxFileTimeProvider,
-  NodeFileOperationProvider,
-} from "../src/platform/shared.js";
-import type { CommandResult, CommandRunner } from "../src/sync/commands.js";
+import { createLocalPlatformServices, createLocalRuntimePaths } from "../src/platform/local.js";
+import { NodeFileTimeProvider, NodeFileOperationProvider } from "../src/platform/shared.js";
+import { MediaProbeRunner } from "./helpers/media.js";
 
-class NoopRunner implements CommandRunner {
-  async run(): Promise<CommandResult> {
-    return { stdout: "", stderr: "" };
+test("local runtime uses project-private defaults and resolves configured paths on all desktop platforms", () => {
+  for (const platform of ["darwin", "linux", "win32"] as const) {
+    const paths = platform === "win32" ? path.win32 : path.posix;
+    const root = platform === "win32" ? "C:\\projects\\camera" : "/projects/camera";
+    const defaults = createLocalRuntimePaths({}, root, platform);
+    assert.equal(defaults.configDir, paths.join(root, ".dev/local/config"));
+    assert.equal(defaults.dataDir, paths.join(root, ".dev/local/data"));
+    assert.equal(defaults.downloadRoot, paths.join(root, ".dev/local/videos"));
+    assert.equal(defaults.credentialFile, paths.join(defaults.dataDir, "credentials.enc"));
+    const configured = createLocalRuntimePaths({
+      XIAOMI_STORY_CONFIG_DIR: "private/config",
+      XIAOMI_STORY_DATA_DIR: "private/data",
+      XIAOMI_STORY_DOWNLOAD_ROOT: paths.join(root, "archive"),
+    }, root, platform);
+    assert.equal(configured.configDir, paths.join(root, "private/config"));
+    assert.equal(configured.dataDir, paths.join(root, "private/data"));
+    assert.equal(configured.downloadRoot, paths.join(root, "archive"));
   }
-}
-
-test("macOS local runtime resolves explicit private data and video paths", () => {
-  const paths = createDarwinRuntimePaths(
-    {
-      XIAOMI_STORY_CONFIG_DIR: "/tmp/xiaomi-config",
-      XIAOMI_STORY_DATA_DIR: "/tmp/xiaomi-data",
-      XIAOMI_STORY_DOWNLOAD_ROOT: "/tmp/xiaomi-videos",
-    },
-    "/Users/tester",
-  );
-  assert.deepEqual(paths, {
-    configDir: "/tmp/xiaomi-config",
-    dataDir: "/tmp/xiaomi-data",
-    downloadRoot: "/tmp/xiaomi-videos",
-    credentialKeyFile: "/tmp/xiaomi-config/credential.key",
-    credentialFile: "/tmp/xiaomi-data/credentials.enc",
-    configFile: "/tmp/xiaomi-data/config.json",
-    historyFile: "/tmp/xiaomi-data/sync-history.json",
-  });
 });
 
-test("macOS local services expose media tools and capabilities", async () => {
-  const services = await createDarwinPlatformServices(new NoopRunner(), {
-    architecture: "arm64",
-    credentials: new MemoryCredentialStore(),
-    environment: {},
-    homeDirectory: "/Users/tester",
-  });
-  assert.equal(services.runtimeMode, "local");
-  assert.equal(services.platform, "darwin");
-  assert.equal(services.architecture, "arm64");
-  assert.equal(
-    services.paths.configFile,
-    path.join(services.paths.dataDir, "config.json"),
-  );
-  assert.deepEqual(services.mediaTools.getTools(), {
-    ffmpeg: "/opt/homebrew/bin/ffmpeg",
-    ffprobe: "/opt/homebrew/bin/ffprobe",
-    hlsInputOptions: [
-      "-extension_picky",
-      "0",
-      "-allowed_segment_extensions",
-      "ALL",
-      "-protocol_whitelist",
-      "pipe,http,https,tcp,tls,crypto",
-    ],
-  });
-  const capabilities = await services.capabilities();
-  assert.deepEqual(Object.keys(capabilities).sort(), [
-    "credentials",
-    "ffmpeg",
-    "ffprobe",
-    "fileCreationTime",
-    "mediaDownload",
-  ]);
-  assert.ok(Object.values(capabilities).every((value) => typeof value === "boolean"));
+test("local services find configurable media commands without macOS tools or filesystem birth-time support", async () => {
+  for (const platform of ["darwin", "linux", "win32"] as const) {
+    const services = await createLocalPlatformServices(new MediaProbeRunner(), {
+      platform,
+      credentials: new MemoryCredentialStore(),
+      environment: { XIAOMI_STORY_FFMPEG: "custom-ffmpeg", XIAOMI_STORY_FFPROBE: "custom-ffprobe" },
+      projectRoot: platform === "win32" ? "C:\\projects\\camera" : "/projects/camera",
+    });
+    assert.equal(services.runtimeMode, "local");
+    assert.equal(services.platform, platform);
+    const tools = services.mediaTools.getTools();
+    assert.equal(tools.ffmpeg, "custom-ffmpeg");
+    assert.equal(tools.ffprobe, "custom-ffprobe");
+    assert.ok(tools.hlsInputOptions.includes("-allowed_segment_extensions"));
+    const capabilities = await services.capabilities();
+    assert.equal(capabilities.mediaDownload, true);
+    assert.equal(capabilities.fileCreationTime, false);
+  }
 });
 
-test("Linux media providers set mtime and shared file permissions", async () => {
-  const directory = await mkdtemp(path.join(os.tmpdir(), "xiaomi-linux-media-"));
+test("local media provider sets filesystem time through Node on the native platform", async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "xiaomi-local-media-"));
   const file = path.join(directory, "video.mp4");
   const expected = new Date("2026-11-17T15:59:59.000Z");
   try {
     await writeFile(file, "video", { mode: 0o600 });
-    const timeResult = await new LinuxFileTimeProvider().setTimes(file, expected);
+    const timeResult = await new NodeFileTimeProvider().setTimes(file, expected);
     await new NodeFileOperationProvider(0o660).setMediaPermissions(file);
     const result = await stat(file);
-    assert.deepEqual(timeResult, {
-      creationTimeSupported: false,
-      creationTimeSet: false,
-      modificationTimeSet: true,
-    });
+    assert.equal(timeResult.modificationTimeSet, true);
+    assert.equal(timeResult.creationTimeSet, false);
     assert.ok(Math.abs(result.mtimeMs - expected.getTime()) < 1_000);
-    assert.equal(result.mode & 0o777, 0o660);
+    if (process.platform !== "win32") assert.equal(result.mode & 0o777, 0o660);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

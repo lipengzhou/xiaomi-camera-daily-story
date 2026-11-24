@@ -5,7 +5,7 @@ import path from "node:path";
 import { test } from "node:test";
 
 import { MemoryCredentialStore } from "../src/credentials.js";
-import { DarwinFileOperationProvider } from "../src/platform/darwin.js";
+import { NodeFileOperationProvider } from "../src/platform/shared.js";
 import { ConfigStore, HistoryStore } from "../src/storage.js";
 import type { MediaDownloader } from "../src/sync/media.js";
 import { safePathSegment, SyncService } from "../src/sync/service.js";
@@ -50,7 +50,7 @@ test("sync processes configured cameras across homes and skips existing targets"
     await mkdir(existingDirectory, { recursive: true });
     await writeFile(existingTarget, "existing");
 
-    const fileOperations = new DarwinFileOperationProvider();
+    const fileOperations = new NodeFileOperationProvider();
     const configStore = new ConfigStore(paths, fileOperations);
     await configStore.save({
       schemaVersion: 1,

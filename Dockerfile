@@ -16,6 +16,7 @@ COPY package.json package-lock.json ./
 RUN npm ci
 COPY tsconfig.json ./
 COPY src ./src
+COPY scripts ./scripts
 RUN npm run build
 
 FROM build AS test
@@ -23,6 +24,8 @@ FROM build AS test
 COPY public ./public
 COPY test ./test
 COPY container-test ./container-test
+COPY fnos ./fnos
+COPY .env.example ./.env.example
 RUN npm run check
 CMD ["npm", "run", "test:container"]
 

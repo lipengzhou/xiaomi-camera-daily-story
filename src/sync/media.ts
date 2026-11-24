@@ -1,5 +1,4 @@
-import { chmod, mkdir, mkdtemp, realpath, stat } from "node:fs/promises";
-import os from "node:os";
+import { mkdir, realpath, stat } from "node:fs/promises";
 import path from "node:path";
 
 import { AppError } from "../errors.js";
@@ -20,10 +19,6 @@ interface ProbeResult {
   streams?: ProbeStream[];
   format?: { tags?: { creation_time?: string } };
 }
-
-const COVER_SOURCE_SECOND = 2;
-const COVER_DURATION_SECONDS = 2;
-const OUTPUT_FRAME_RATE = 30;
 
 export class MediaDownloader {
   private downloadRoots: string[];
@@ -50,13 +45,6 @@ export class MediaDownloader {
 
   async download(playlist: Buffer, target: string, date: string): Promise<void> {
     const targetDirectory = await this.prepareTargetDirectory(target);
-    const temporaryDirectory = await mkdtemp(path.join(os.tmpdir(), "xiaomi-daily-story-"));
-    await chmod(temporaryDirectory, 0o700);
-    const coverFile = path.join(temporaryDirectory, "cover.png");
-    const sourceFile = path.join(
-      targetDirectory,
-      `.${path.basename(target, ".mp4")}.${process.pid}.source.mp4`,
-    );
     const partialFile = path.join(
       targetDirectory,
       `.${path.basename(target, ".mp4")}.${process.pid}.partial.mp4`,
@@ -64,9 +52,6 @@ export class MediaDownloader {
     try {
       const tools = this.mediaTools.getTools();
       const metadataTime = creationTime(date);
-
-      // First preserve the Xiaomi HLS media in a local MP4. The next stages need random access
-      // to capture a frame and prepend it to the final video.
       await this.runner.run(
         tools.ffmpeg,
         [
@@ -74,6 +59,8 @@ export class MediaDownloader {
           "-nostdin",
           "-v",
           "error",
+          "-f",
+          "hls",
           ...tools.hlsInputOptions,
           "-i",
           "pipe:0",
@@ -83,90 +70,16 @@ export class MediaDownloader {
           "0:a:0?",
           "-c",
           "copy",
+          "-metadata",
+          `creation_time=${metadataTime}`,
+          "-metadata:s",
+          `creation_time=${metadataTime}`,
           "-movflags",
           "+faststart",
-          sourceFile,
+          partialFile,
         ],
         { stdin: playlist },
       );
-      await this.requireNonEmpty(
-        sourceFile,
-        "FFmpeg 生成了空的原始视频文件。",
-        "EMPTY_SOURCE_VIDEO",
-      );
-
-      await this.runner.run(tools.ffmpeg, [
-        "-y",
-        "-nostdin",
-        "-v",
-        "error",
-        "-ss",
-        String(COVER_SOURCE_SECOND),
-        "-i",
-        sourceFile,
-        "-map",
-        "0:v:0",
-        "-frames:v",
-        "1",
-        coverFile,
-      ]);
-      await this.requireNonEmpty(coverFile, "无法截取视频第 2 秒画面。", "COVER_FRAME_FAILED");
-
-      const hasAudio = await this.hasAudio(sourceFile, tools.ffprobe);
-      const filter = [
-        `[0:v]trim=duration=${COVER_DURATION_SECONDS},setpts=PTS-STARTPTS,fps=${OUTPUT_FRAME_RATE},format=yuv420p,setsar=1[cover]`,
-        `[1:v]setpts=PTS-STARTPTS,fps=${OUTPUT_FRAME_RATE},format=yuv420p,setsar=1[main]`,
-        "[cover][main]concat=n=2:v=1:a=0[video]",
-        ...(hasAudio
-          ? [
-              `[1:a]adelay=${COVER_DURATION_SECONDS * 1000}:all=1,asetpts=PTS-STARTPTS[audio]`,
-            ]
-          : []),
-      ].join(";");
-      const composeArguments = [
-        "-y",
-        "-nostdin",
-        "-v",
-        "error",
-        "-loop",
-        "1",
-        "-framerate",
-        String(OUTPUT_FRAME_RATE),
-        "-i",
-        coverFile,
-        "-i",
-        sourceFile,
-        "-filter_complex",
-        filter,
-        "-map",
-        "[video]",
-      ];
-      if (hasAudio) {
-        composeArguments.push("-map", "[audio]");
-      }
-      composeArguments.push(
-        "-c:v",
-        "libx264",
-        "-preset",
-        "medium",
-        "-crf",
-        "18",
-        "-pix_fmt",
-        "yuv420p",
-      );
-      if (hasAudio) {
-        composeArguments.push("-c:a", "aac", "-b:a", "128k");
-      }
-      composeArguments.push(
-        "-metadata",
-        `creation_time=${metadataTime}`,
-        "-metadata:s",
-        `creation_time=${metadataTime}`,
-        "-movflags",
-        "+faststart",
-        partialFile,
-      );
-      await this.runner.run(tools.ffmpeg, composeArguments);
       await this.requireNonEmpty(partialFile, "FFmpeg 生成了空视频文件。", "EMPTY_VIDEO");
       await this.fileTimes.setTimes(partialFile, new Date(metadataTime));
       await this.verify(partialFile, date, tools.ffprobe);
@@ -174,8 +87,6 @@ export class MediaDownloader {
       await this.fileOperations.replaceFile(partialFile, target);
     } finally {
       await this.fileOperations.removeTemporary(partialFile);
-      await this.fileOperations.removeTemporary(sourceFile);
-      await this.fileOperations.removeTemporary(temporaryDirectory);
     }
   }
 
@@ -229,20 +140,6 @@ export class MediaDownloader {
       }
     }
     throw new AppError(message, code, 502);
-  }
-
-  private async hasAudio(file: string, ffprobe: string): Promise<boolean> {
-    const result = await this.runner.run(ffprobe, [
-      "-v",
-      "error",
-      "-show_entries",
-      "stream=codec_type",
-      "-of",
-      "json",
-      file,
-    ]);
-    const probe = JSON.parse(result.stdout) as ProbeResult;
-    return (probe.streams ?? []).some((stream) => stream.codec_type === "audio");
   }
 
   private async verify(file: string, date: string, ffprobe: string): Promise<void> {

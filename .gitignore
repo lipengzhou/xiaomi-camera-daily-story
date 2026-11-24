@@ -9,6 +9,7 @@ coverage/
 
 # local artifacts and secrets
 .env.*
+!.env.example
 .idea/
 .vscode/
 *.tsbuildinfo

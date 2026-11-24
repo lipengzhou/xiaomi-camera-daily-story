@@ -55,7 +55,7 @@ test("Unix Socket preparation never overwrites a regular file", async () => {
   }
 });
 
-test("fnOS server accepts authenticated requests only through its Unix Socket", async () => {
+test("fnOS server accepts authenticated requests only through its Unix Socket", { skip: process.platform === "win32" }, async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), "xiaomi-socket-server-"));
   const targetDir = path.join(directory, "target");
   await mkdir(targetDir, { recursive: true });

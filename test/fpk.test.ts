@@ -7,6 +7,8 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
 
+const shellTest = process.platform === "win32" ? test.skip : test;
+
 const projectRoot = process.cwd();
 const packageRoot = path.join(projectRoot, "fnos", "xiaomi-camera-daily-story");
 
@@ -21,7 +23,7 @@ async function writeExecutable(file: string, contents: string): Promise<void> {
 
 function parseManifest(contents: string): Map<string, string> {
   const result = new Map<string, string>();
-  for (const line of contents.split("\n")) {
+  for (const line of contents.split(/\r?\n/u)) {
     const match = line.match(/^([^#=]+)=(.*)$/u);
     if (match) {
       result.set(match[1]!.trim(), match[2]!.trim());
@@ -29,6 +31,15 @@ function parseManifest(contents: string): Map<string, string> {
   }
   return result;
 }
+
+test("FPK manifest parsing accepts both LF and CRLF line endings", () => {
+  const fields = ["appname=xiaomi-camera-daily-story", "version=1.2.3", "ctl_stop=true", ""];
+  const lf = parseManifest(fields.join("\n"));
+  const crlf = parseManifest(fields.join("\r\n"));
+  assert.equal(crlf.get("appname"), "xiaomi-camera-daily-story");
+  assert.equal(crlf.get("ctl_stop"), "true");
+  assert.deepEqual(crlf, lf);
+});
 
 async function assertMissing(file: string): Promise<void> {
   await assert.rejects(access(file), { code: "ENOENT" });
@@ -123,7 +134,7 @@ test("FPK resource and privilege declarations are minimal", async () => {
   assert.equal(privilege.groupname, "xiaomi-camera-daily-story");
 });
 
-test("FPK lifecycle scripts are executable and valid Bash", async () => {
+shellTest("FPK lifecycle scripts are executable and valid Bash", async () => {
   const scripts = [
     "main",
     "install_init",
@@ -154,7 +165,7 @@ test("FPK preflight hooks leave Docker management to the app center", async () =
   assert.doesNotMatch(library, /docker (?:info|version)/iu);
 });
 
-test("FPK config init renders stable mounts before appcenter recreates the container", async (context) => {
+shellTest("FPK config init renders stable mounts before appcenter recreates the container", async (context) => {
   const root = await mkdtemp(path.join(tmpdir(), "xiaomi-story-fpk-mounts-"));
   context.after(() => rm(root, { recursive: true, force: true }));
   const app = path.join(root, "app");
@@ -213,7 +224,7 @@ test("FPK config init renders stable mounts before appcenter recreates the conta
   assert.equal((await stat(path.join(config, "authorized-video-roots.tsv"))).mode & 0o777, 0o644);
 });
 
-test("FPK lifecycle formats authorized paths like fnOS application settings", async (context) => {
+shellTest("FPK lifecycle formats authorized paths like fnOS application settings", async (context) => {
   const root = await mkdtemp(path.join(tmpdir(), "xiaomi-story-fpk-labels-"));
   context.after(() => rm(root, { recursive: true, force: true }));
   const bin = path.join(root, "bin");
@@ -267,7 +278,7 @@ test("FPK lifecycle formats authorized paths like fnOS application settings", as
   );
 });
 
-test("FPK main start force-recreates the Docker project with current mounts", async (context) => {
+shellTest("FPK main start force-recreates the Docker project with current mounts", async (context) => {
   const root = await mkdtemp(path.join(tmpdir(), "xiaomi-story-fpk-start-"));
   context.after(() => rm(root, { recursive: true, force: true }));
   const app = path.join(root, "app");
@@ -329,7 +340,7 @@ test("FPK main start force-recreates the Docker project with current mounts", as
   assert.match(compose, new RegExp(`source: '${photos}'`, "u"));
 });
 
-test("FPK main status reports container state without shell errors", async (context) => {
+shellTest("FPK main status reports container state without shell errors", async (context) => {
   const root = await mkdtemp(path.join(tmpdir(), "xiaomi-story-fpk-status-"));
   context.after(() => rm(root, { recursive: true, force: true }));
   const app = path.join(root, "app");
@@ -383,7 +394,7 @@ test("FPK main status reports container state without shell errors", async (cont
   assert.doesNotMatch(stopped.stderr, /local:|unbound variable/u);
 });
 
-test("FPK watcher renders mounts from the appcenter authorization database", async (context) => {
+shellTest("FPK watcher renders mounts from the appcenter authorization database", async (context) => {
   const root = await mkdtemp(path.join(tmpdir(), "xiaomi-story-fpk-watcher-"));
   context.after(() => rm(root, { recursive: true, force: true }));
   const app = path.join(root, "app");
@@ -509,7 +520,7 @@ test("FPK watcher renders mounts from the appcenter authorization database", asy
   assert.equal((await stat(path.join(root, "watcher.state"))).isFile(), true);
 });
 
-test("FPK uninstall only removes selected private files and preserves videos", async (context) => {
+shellTest("FPK uninstall only removes selected private files and preserves videos", async (context) => {
   const root = await mkdtemp(path.join(tmpdir(), "xiaomi-story-fpk-"));
   context.after(() => rm(root, { recursive: true, force: true }));
   const app = path.join(root, "app");
@@ -557,7 +568,7 @@ test("FPK uninstall only removes selected private files and preserves videos", a
   assert.equal(await readFile(path.join(videos, "story.mp4"), "utf8"), "video");
 });
 
-test("FPK uninstall script does not delete private data unless explicitly selected", async (context) => {
+shellTest("FPK uninstall script does not delete private data unless explicitly selected", async (context) => {
   const root = await mkdtemp(path.join(tmpdir(), "xiaomi-story-fpk-keep-"));
   context.after(() => rm(root, { recursive: true, force: true }));
   const app = path.join(root, "app");

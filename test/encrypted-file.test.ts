@@ -48,8 +48,10 @@ test("encrypted file store persists a session without plaintext tokens", async (
     const key = await readFile(paths.keyFile);
     const ciphertext = await readFile(paths.credentialFile, "utf8");
     assert.equal(key.length, 32);
-    assert.equal((await stat(paths.keyFile)).mode & 0o777, 0o600);
-    assert.equal((await stat(paths.credentialFile)).mode & 0o777, 0o600);
+    if (process.platform !== "win32") {
+      assert.equal((await stat(paths.keyFile)).mode & 0o777, 0o600);
+      assert.equal((await stat(paths.credentialFile)).mode & 0o777, 0o600);
+    }
     assert.doesNotMatch(ciphertext, /pass-token-plaintext-marker/);
     assert.doesNotMatch(ciphertext, /service-token-plaintext-marker/);
     assert.deepEqual(await store.get(), session);

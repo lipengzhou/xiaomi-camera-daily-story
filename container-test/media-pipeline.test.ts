@@ -12,6 +12,7 @@ import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 
+import { loadEnvironmentFiles } from "../src/environment.js";
 import { probeContainerMediaTools } from "../src/platform/ffmpeg.js";
 import {
   LinuxFileTimeProvider,
@@ -19,6 +20,10 @@ import {
 } from "../src/platform/shared.js";
 import { SpawnCommandRunner } from "../src/sync/commands.js";
 import { MediaDownloader } from "../src/sync/media.js";
+
+await loadEnvironmentFiles();
+const ffmpeg = process.env.XIAOMI_STORY_FFMPEG || "ffmpeg";
+const ffprobe = process.env.XIAOMI_STORY_FFPROBE || "ffprobe";
 
 async function closeServer(server: Server): Promise<void> {
   await new Promise<void>((resolve, reject) => {
@@ -33,7 +38,7 @@ async function frameSimilarity(
   rightFile: string,
   rightSecond: string,
 ): Promise<number> {
-  const result = await runner.run("ffmpeg", [
+  const result = await runner.run(ffmpeg, [
     "-v",
     "info",
     "-ss",
@@ -69,7 +74,7 @@ test("container media pipeline streams HLS and produces a verified shared MP4", 
   let server: Server | null = null;
   try {
     await mkdir(hlsDirectory, { recursive: true });
-    await runner.run("ffmpeg", [
+    await runner.run(ffmpeg, [
       "-y",
       "-v",
       "error",
@@ -97,7 +102,7 @@ test("container media pipeline streams HLS and produces a verified shared MP4", 
       "aac",
       source,
     ]);
-    await runner.run("ffmpeg", [
+    await runner.run(ffmpeg, [
       "-y",
       "-v",
       "error",
@@ -140,7 +145,7 @@ test("container media pipeline streams HLS and produces a verified shared MP4", 
       )
       .join("\n");
 
-    const media = await probeContainerMediaTools(runner);
+    const media = await probeContainerMediaTools(runner, { ffmpeg, ffprobe });
     assert.equal(media.provider.status.available, true, media.issues[0]?.message);
     await new MediaDownloader(
       runner,
@@ -152,11 +157,11 @@ test("container media pipeline streams HLS and produces a verified shared MP4", 
 
     const outputStat = await stat(target);
     assert.ok(outputStat.size > 0);
-    assert.equal(outputStat.mode & 0o777, 0o660);
+    if (process.platform !== "win32") assert.equal(outputStat.mode & 0o777, 0o660);
     assert.ok(Math.abs(outputStat.mtimeMs - Date.parse("2026-11-17T15:59:59Z")) < 1_000);
     assert.ok(segmentRequests > 0);
 
-    const probe = await runner.run("ffprobe", [
+    const probe = await runner.run(ffprobe, [
       "-v",
       "error",
       "-show_entries",
@@ -170,28 +175,34 @@ test("container media pipeline streams HLS and produces a verified shared MP4", 
       streams?: Array<{ codec_name?: string; codec_type?: string }>;
     };
     const duration = Number(mediaInfo.format?.duration);
-    assert.ok(duration >= 5.5 && duration <= 6.5, `unexpected duration ${duration}`);
+    assert.ok(duration >= 3.5 && duration <= 4.5, `unexpected duration ${duration}`);
     assert.ok(mediaInfo.streams?.some((stream) => stream.codec_name === "h264"));
     assert.ok(mediaInfo.streams?.some((stream) => stream.codec_name === "aac"));
 
-    const frozenSimilarity = await frameSimilarity(
-      runner,
-      target,
-      "0.25",
-      target,
-      "1.75",
-    );
-    assert.ok(frozenSimilarity >= 0.99, `cover is not frozen: ${frozenSimilarity}`);
-    const sourceSimilarity = await frameSimilarity(
+    const firstFrameSimilarity = await frameSimilarity(
       runner,
       target,
       "0.5",
       source,
-      "2",
+      "0.5",
     );
-    assert.ok(sourceSimilarity >= 0.95, `cover does not match source second 2: ${sourceSimilarity}`);
+    assert.ok(
+      firstFrameSimilarity >= 0.95,
+      `first frame does not match source: ${firstFrameSimilarity}`,
+    );
+    const laterFrameSimilarity = await frameSimilarity(
+      runner,
+      target,
+      "3",
+      source,
+      "3",
+    );
+    assert.ok(
+      laterFrameSimilarity >= 0.95,
+      `later frame does not match source: ${laterFrameSimilarity}`,
+    );
 
-    const silence = await runner.run("ffmpeg", [
+    const silence = await runner.run(ffmpeg, [
       "-v",
       "info",
       "-i",
@@ -202,9 +213,7 @@ test("container media pipeline streams HLS and produces a verified shared MP4", 
       "null",
       "-",
     ]);
-    const silenceEnd = /silence_end:\s*([0-9.]+)/u.exec(silence.stderr)?.[1];
-    assert.ok(silenceEnd, "silencedetect did not find the cover silence");
-    assert.ok(Number(silenceEnd) >= 1.8 && Number(silenceEnd) <= 2.3);
+    assert.doesNotMatch(silence.stderr, /silence_start/u, "audio should start immediately");
 
     assert.deepEqual(
       (await readdir(path.dirname(target))).filter(

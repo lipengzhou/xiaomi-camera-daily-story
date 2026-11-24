@@ -1,6 +1,6 @@
 import type { CredentialStore } from "../credentials.js";
 
-export type SupportedPlatform = "darwin" | "linux";
+export type SupportedPlatform = "darwin" | "linux" | "win32";
 export type RuntimeMode = "local" | "fnos";
 
 export interface AuthorizedVideoRoot {
@@ -77,7 +77,6 @@ export interface MediaRuntimeStatus {
   ffprobeVersion: string | null;
   hls: boolean;
   protocols: string[];
-  encoders: string[];
   hlsOptions: string[];
   missing: string[];
 }

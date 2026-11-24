@@ -11,7 +11,7 @@ body:
     id: app-version
     attributes:
       label: 应用版本
-      placeholder: "0.1.7"
+      placeholder: "填写应用中心显示的版本"
     validations:
       required: true
   - type: input

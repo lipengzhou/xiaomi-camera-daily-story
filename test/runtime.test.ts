@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
@@ -7,6 +7,8 @@ import { test } from "node:test";
 import { createRuntimeServices, resolveRuntimeMode } from "../src/runtime.js";
 import type { CommandResult, CommandRunner } from "../src/sync/commands.js";
 import type { XiaomiSession } from "../src/types.js";
+
+const fnosTest = process.platform === "win32" ? test.skip : test;
 
 class NoopRunner implements CommandRunner {
   async run(): Promise<CommandResult> {
@@ -50,7 +52,7 @@ test("runtime mode defaults to local only outside production", () => {
   );
 });
 
-test("fnOS runtime uses fixed container directories and encrypted credentials", async () => {
+fnosTest("fnOS runtime uses fixed container directories and encrypted credentials", async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), "xiaomi-fnos-runtime-"));
   try {
     const services = await createRuntimeServices("linux", new NoopRunner(), {
@@ -90,7 +92,7 @@ test("fnOS runtime uses fixed container directories and encrypted credentials", 
   }
 });
 
-test("fnOS runtime loads multiple authorized video roots from private metadata", async () => {
+fnosTest("fnOS runtime loads multiple authorized video roots from private metadata", async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), "xiaomi-authorized-roots-"));
   try {
     const configDir = path.join(directory, "config");
@@ -150,26 +152,40 @@ test("fnOS runtime refuses to start outside Linux", async () => {
   );
 });
 
-test("local runtime refuses to start outside macOS", async () => {
+test("local runtime starts on Windows, macOS and Linux with project-relative storage", async () => {
+  for (const platform of ["win32", "darwin", "linux"] as const) {
+    const paths = platform === "win32" ? path.win32 : path.posix;
+    const projectRoot = platform === "win32" ? "C:\\projects\\camera" : "/projects/camera";
+    const services = await createRuntimeServices(platform, new NoopRunner(), {
+      projectRoot,
+      environment: { XIAOMI_STORY_RUNTIME: "local", XIAOMI_STORY_DATA_DIR: "private/data" },
+    });
+    assert.equal(services.platform, platform);
+    assert.equal(services.web.transport, "tcp");
+    assert.equal(services.paths.dataDir, paths.join(projectRoot, "private/data"));
+  }
+});
+
+fnosTest("fnOS runtime still rejects relative container storage paths", async () => {
   await assert.rejects(
     () =>
       createRuntimeServices("linux", new NoopRunner(), {
-        environment: { XIAOMI_STORY_RUNTIME: "local" },
-      }),
-    /仅用于 macOS/,
-  );
-});
-
-test("runtime rejects relative storage paths", async () => {
-  await assert.rejects(
-    () =>
-      createRuntimeServices("darwin", new NoopRunner(), {
-        environment: {
-          XIAOMI_STORY_RUNTIME: "local",
-          XIAOMI_STORY_DATA_DIR: "relative-data",
-        },
-        homeDirectory: "/home/tester",
+        environment: { XIAOMI_STORY_RUNTIME: "fnos" },
+        fnosDirectories: { dataDir: "relative-data" },
       }),
     /必须是绝对路径/,
   );
+});
+
+test("local authorization persists encrypted under the project and survives restart", async (context) => {
+  const projectRoot = await mkdtemp(path.join(os.tmpdir(), "xiaomi-project-credentials-"));
+  context.after(() => rm(projectRoot, { recursive: true, force: true }));
+  const options = { projectRoot, environment: { XIAOMI_STORY_RUNTIME: "local" } };
+  const services = await createRuntimeServices(process.platform, new NoopRunner(), options);
+  await services.credentials.set(session);
+  assert.equal(services.paths.credentialFile, path.join(projectRoot, ".dev/local/data/credentials.enc"));
+  const stored = await readFile(services.paths.credentialFile, "utf8");
+  assert.doesNotMatch(stored, /serviceToken|passToken/u);
+  const restarted = await createRuntimeServices(process.platform, new NoopRunner(), options);
+  assert.deepEqual(await restarted.credentials.get(), session);
 });
