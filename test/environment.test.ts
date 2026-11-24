@@ -12,7 +12,7 @@ import { ensureLocalEnvironment } from "../scripts/dev-env.mjs";
 
 async function fixture(context: { after: (cleanup: () => Promise<unknown>) => void }): Promise<string> {
   const root = await mkdtemp(path.join(os.tmpdir(), "xiaomi-env-test-"));
-  context.after(() => rm(root, { recursive: true, force: true }));
+  context.after(() => rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }));
   return root;
 }
 
@@ -75,6 +75,7 @@ test("local startup reads .env.local and creates project-local data without inst
   delete environment.PORT;
   for (const key of Object.keys(environment)) if (key.startsWith("XIAOMI_STORY_")) delete environment[key];
   const child = spawn(process.execPath, ["--import", "tsx", "src/index.ts"], { cwd: root, env: environment, stdio: ["ignore", "pipe", "pipe"] });
+  const closed = new Promise<void>((resolve) => child.once("close", () => resolve()));
   let output = "";
   try {
     await new Promise<void>((resolve, reject) => {
@@ -97,6 +98,6 @@ test("local startup reads .env.local and creates project-local data without inst
     assert.ok(await readFile(path.join(root, ".dev/local/data/config.json"), "utf8"));
   } finally {
     child.kill("SIGTERM");
-    if (child.exitCode === null && child.signalCode === null) await new Promise<void>((resolve) => child.once("exit", () => resolve()));
+    await closed;
   }
 });
