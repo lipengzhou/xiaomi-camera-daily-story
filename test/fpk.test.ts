@@ -23,7 +23,7 @@ async function writeExecutable(file: string, contents: string): Promise<void> {
 
 function parseManifest(contents: string): Map<string, string> {
   const result = new Map<string, string>();
-  for (const line of contents.split("\n")) {
+  for (const line of contents.split(/\r?\n/u)) {
     const match = line.match(/^([^#=]+)=(.*)$/u);
     if (match) {
       result.set(match[1]!.trim(), match[2]!.trim());
@@ -31,6 +31,15 @@ function parseManifest(contents: string): Map<string, string> {
   }
   return result;
 }
+
+test("FPK manifest parsing accepts both LF and CRLF line endings", () => {
+  const fields = ["appname=xiaomi-camera-daily-story", "version=1.2.3", "ctl_stop=true", ""];
+  const lf = parseManifest(fields.join("\n"));
+  const crlf = parseManifest(fields.join("\r\n"));
+  assert.equal(crlf.get("appname"), "xiaomi-camera-daily-story");
+  assert.equal(crlf.get("ctl_stop"), "true");
+  assert.deepEqual(crlf, lf);
+});
 
 async function assertMissing(file: string): Promise<void> {
   await assert.rejects(access(file), { code: "ENOENT" });
