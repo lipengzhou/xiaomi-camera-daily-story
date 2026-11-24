@@ -1,5 +1,5 @@
 appname=xiaomi-camera-daily-story
-version=0.1.7
+version=0.1.8
 display_name=米家摄像头每日故事
 desc=自动同步米家摄像头每日故事到飞牛 NAS
 source=thirdparty

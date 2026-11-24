@@ -96,7 +96,7 @@ function renderCapabilities(capabilities) {
 function renderEnvironment(environment, currentUser) {
   const details = $("environment-details");
   details.replaceChildren();
-  const platformLabels = { darwin: "macOS", linux: "Linux" };
+  const platformLabels = { darwin: "macOS", linux: "Linux", win32: "Windows" };
   const runtimeLabels = { local: "本地开发", fnos: "飞牛 fnOS 容器" };
   const rows = [
     ["运行模式", runtimeLabels[environment.runtimeMode] || environment.runtimeMode],

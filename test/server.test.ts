@@ -1,17 +1,21 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 
 import { MemoryCredentialStore } from "../src/credentials.js";
-import { createDarwinPlatformServices } from "../src/platform/darwin.js";
+import { createLocalPlatformServices } from "../src/platform/local.js";
 import type { RuntimePaths } from "../src/platform/types.js";
 import { createRuntimeServices } from "../src/runtime.js";
 import { createServer } from "../src/server.js";
 import type { CommandResult, CommandRunner } from "../src/sync/commands.js";
 import type { XiaomiSession } from "../src/types.js";
 import type { AccountProfile, ProfileProvider } from "../src/xiaomi/profile.js";
+
+const packageVersion = JSON.parse(
+  await readFile(new URL("../package.json", import.meta.url), "utf8"),
+).version as string;
 
 class NoopRunner implements CommandRunner {
   async run(): Promise<CommandResult> {
@@ -66,7 +70,7 @@ test("server enforces local Host and Origin and serves the UI", async () => {
     credentials,
     profileProvider: new FakeProfileProvider(),
     commandRunner: runner,
-    platformServices: await createDarwinPlatformServices(runner, { credentials }),
+    platformServices: await createLocalPlatformServices(runner, { credentials }),
     publicRoot: path.resolve("public"),
     paths,
   });
@@ -84,7 +88,7 @@ test("server enforces local Host and Origin and serves the UI", async () => {
       avatarUrl: "/api/profile/avatar",
       authorizedAt: "2026-11-18T09:45:17.825Z",
     });
-    assert.equal(statusBody.environment.platform, "darwin");
+    assert.equal(statusBody.environment.platform, process.platform);
     assert.equal(statusBody.environment.credentialStore.kind, "encrypted-file");
     assert.equal(statusBody.environment.runtimeMode, "local");
     assert.equal(statusBody.environment.videoDir, downloadRoot);
@@ -191,7 +195,7 @@ test("server enforces local Host and Origin and serves the UI", async () => {
   }
 });
 
-test("fnOS routes require the gateway base path and an administrator identity", async () => {
+test("fnOS routes require the gateway base path and an administrator identity", { skip: process.platform === "win32" }, async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), "xiaomi-linux-server-test-"));
   const runner = new NoopRunner();
   const platformServices = await createRuntimeServices("linux", runner, {
@@ -325,8 +329,8 @@ test("fnOS routes require the gateway base path and an administrator identity", 
       headers: adminHeaders,
     });
     assert.equal(page.statusCode, 200);
-    assert.match(page.body, /href="styles\.css\?v=0\.1\.7"/);
-    assert.match(page.body, /src="app\.js\?v=0\.1\.7"/);
+    assert.ok(page.body.includes(`href="styles.css?v=${packageVersion}"`));
+    assert.ok(page.body.includes(`src="app.js?v=${packageVersion}"`));
     assert.equal(page.headers["cache-control"], "no-cache");
     assert.match(page.headers["content-security-policy"] ?? "", /frame-ancestors 'self'/);
     assert.equal(page.headers["x-frame-options"], "SAMEORIGIN");

@@ -1,3 +1,4 @@
+import { loadEnvironmentFiles } from "./environment.js";
 import { createRuntimeServices } from "./runtime.js";
 import { createServer } from "./server.js";
 import { SpawnCommandRunner } from "./sync/commands.js";
@@ -15,6 +16,7 @@ function localPort(): number {
   return port;
 }
 
+await loadEnvironmentFiles();
 const runner = new SpawnCommandRunner();
 const platformServices = await createRuntimeServices(process.platform, runner);
 const port = platformServices.web.transport === "tcp" ? localPort() : 3210;

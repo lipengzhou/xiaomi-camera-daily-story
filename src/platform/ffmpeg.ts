@@ -8,7 +8,6 @@ import type {
 } from "./types.js";
 
 const REQUIRED_PROTOCOLS = ["http", "https", "tcp", "tls", "crypto", "pipe"];
-const REQUIRED_ENCODERS = ["libx264", "aac", "png"];
 
 function firstLine(value: string): string | null {
   return value.split(/\r?\n/u).find((line) => line.trim())?.trim() ?? null;
@@ -16,10 +15,6 @@ function firstLine(value: string): string | null {
 
 function hasListedValue(output: string, value: string): boolean {
   return new RegExp(`^\\s*${value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&")}\\s*$`, "mu").test(output);
-}
-
-function hasEncoder(output: string, value: string): boolean {
-  return new RegExp(`^\\s*[A-Z.]{6}\\s+${value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&")}\\s`, "mu").test(output);
 }
 
 export class ContainerMediaToolProvider implements MediaToolProvider {
@@ -31,7 +26,7 @@ export class ContainerMediaToolProvider implements MediaToolProvider {
   getTools(): MediaTools {
     if (!this.status.available) {
       throw new AppError(
-        `容器媒体能力不完整：${this.status.missing.join("、")}`,
+        `运行环境媒体能力不完整：${this.status.missing.join("、")}`,
         "MEDIA_CAPABILITY_UNAVAILABLE",
         503,
       );
@@ -49,26 +44,26 @@ export interface ContainerMediaProbeResult {
   issues: PlatformIssue[];
 }
 
-export async function probeContainerMediaTools(
+async function probeMediaTools(
   runner: CommandRunner,
-  commands: { ffmpeg?: string; ffprobe?: string } = {},
+  commands: { ffmpeg?: string; ffprobe?: string },
+  mode: "local" | "fnos",
 ): Promise<ContainerMediaProbeResult> {
+  const label = mode === "local" ? "本地" : "容器";
+  const prefix = mode === "local" ? "LOCAL" : "FNOS";
   const ffmpeg = commands.ffmpeg ?? "ffmpeg";
   const ffprobe = commands.ffprobe ?? "ffprobe";
   try {
-    const [ffmpegVersionResult, ffprobeVersionResult, hlsResult, protocolResult, encoderResult] =
+    const [ffmpegVersionResult, ffprobeVersionResult, hlsResult, protocolResult] =
       await Promise.all([
         runner.run(ffmpeg, ["-version"]),
         runner.run(ffprobe, ["-version"]),
         runner.run(ffmpeg, ["-hide_banner", "-h", "demuxer=hls"]),
         runner.run(ffmpeg, ["-hide_banner", "-protocols"]),
-        runner.run(ffmpeg, ["-hide_banner", "-encoders"]),
       ]);
     const hlsOutput = `${hlsResult.stdout}\n${hlsResult.stderr}`;
     const protocolOutput = `${protocolResult.stdout}\n${protocolResult.stderr}`;
-    const encoderOutput = `${encoderResult.stdout}\n${encoderResult.stderr}`;
     const protocols = REQUIRED_PROTOCOLS.filter((value) => hasListedValue(protocolOutput, value));
-    const encoders = REQUIRED_ENCODERS.filter((value) => hasEncoder(encoderOutput, value));
     const hlsOptions = ["extension_picky", "allowed_segment_extensions"].filter((value) =>
       hlsOutput.includes(value),
     );
@@ -78,9 +73,6 @@ export async function probeContainerMediaTools(
       ...REQUIRED_PROTOCOLS.filter((value) => !protocols.includes(value)).map(
         (value) => `${value} protocol`,
       ),
-      ...REQUIRED_ENCODERS.filter((value) => !encoders.includes(value)).map(
-        (value) => `${value} encoder`,
-      ),
     ];
     const status: MediaRuntimeStatus = {
       available: missing.length === 0,
@@ -88,7 +80,6 @@ export async function probeContainerMediaTools(
       ffprobeVersion: firstLine(ffprobeVersionResult.stdout || ffprobeVersionResult.stderr),
       hls,
       protocols,
-      encoders,
       hlsOptions,
       missing,
     };
@@ -110,8 +101,8 @@ export async function probeContainerMediaTools(
         ? []
         : [
             {
-              code: "FNOS_MEDIA_CAPABILITY_MISSING",
-              message: `容器 FFmpeg 能力不完整：${missing.join("、")}`,
+              code: `${prefix}_MEDIA_CAPABILITY_MISSING`,
+              message: `${label} FFmpeg 能力不完整：${missing.join("、")}`,
               blocking: true,
             },
           ],
@@ -124,7 +115,6 @@ export async function probeContainerMediaTools(
       ffprobeVersion: null,
       hls: false,
       protocols: [],
-      encoders: [],
       hlsOptions: [],
       missing: ["ffmpeg", "ffprobe"],
     };
@@ -139,11 +129,25 @@ export async function probeContainerMediaTools(
       ),
       issues: [
         {
-          code: "FNOS_MEDIA_PROBE_FAILED",
-          message: `容器媒体能力探测失败：${message}`,
+          code: `${prefix}_MEDIA_PROBE_FAILED`,
+          message: `${label}媒体能力探测失败：${message}`,
           blocking: true,
         },
       ],
     };
   }
+}
+
+export function probeContainerMediaTools(
+  runner: CommandRunner,
+  commands: { ffmpeg?: string; ffprobe?: string } = {},
+): Promise<ContainerMediaProbeResult> {
+  return probeMediaTools(runner, commands, "fnos");
+}
+
+export function probeLocalMediaTools(
+  runner: CommandRunner,
+  commands: { ffmpeg?: string; ffprobe?: string } = {},
+): Promise<ContainerMediaProbeResult> {
+  return probeMediaTools(runner, commands, "local");
 }

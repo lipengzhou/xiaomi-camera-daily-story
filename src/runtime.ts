@@ -4,9 +4,9 @@ import path from "node:path";
 
 import type { CredentialStore } from "./credentials.js";
 import {
-  createDarwinPlatformServices,
-  createDarwinRuntimePaths,
-} from "./platform/darwin.js";
+  createLocalPlatformServices,
+  createLocalRuntimePaths,
+} from "./platform/local.js";
 import { EncryptedFileCredentialStore } from "./platform/encrypted-file.js";
 import { probeContainerMediaTools } from "./platform/ffmpeg.js";
 import {
@@ -27,7 +27,7 @@ export interface RuntimeFactoryOptions {
   architecture?: string;
   credentials?: CredentialStore;
   environment?: NodeJS.ProcessEnv;
-  homeDirectory?: string;
+  projectRoot?: string;
   fnosDirectories?: FnosRuntimeDirectories;
 }
 
@@ -148,8 +148,8 @@ export async function createRuntimeServices(
 ): Promise<PlatformServices> {
   const environment = options.environment ?? process.env;
   const runtimeMode = resolveRuntimeMode(environment);
-  if (runtimeMode === "local" && platform !== "darwin") {
-    throw new Error("local 运行模式仅用于 macOS 开发环境。");
+  if (runtimeMode === "local" && !["win32", "darwin", "linux"].includes(platform)) {
+    throw new Error("本地开发支持 Windows、macOS 和 Linux。");
   }
   if (runtimeMode === "fnos" && platform !== "linux") {
     throw new Error("fnos 运行模式只能在 Linux 容器中启动。");
@@ -159,7 +159,7 @@ export async function createRuntimeServices(
     ? await resolveFnosDirectories(options.fnosDirectories)
     : null;
   const paths = runtimeMode === "local"
-    ? createDarwinRuntimePaths(environment, options.homeDirectory)
+    ? createLocalRuntimePaths(environment, options.projectRoot, platform)
     : createFnosRuntimePaths(fnosDirectories!);
   validateAbsolutePaths(platform, paths);
   const socketPath = runtimeMode === "fnos"
@@ -183,7 +183,9 @@ export async function createRuntimeServices(
   };
 
   if (runtimeMode === "local") {
-    return createDarwinPlatformServices(runner, {
+    return createLocalPlatformServices(runner, {
+      platform: platform as "win32" | "darwin" | "linux",
+      environment,
       ...(options.architecture ? { architecture: options.architecture } : {}),
       credentials,
       credentialStore,

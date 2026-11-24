@@ -5,7 +5,7 @@ import path from "node:path";
 import { test } from "node:test";
 
 import { ValidationError } from "../src/errors.js";
-import { DarwinFileOperationProvider } from "../src/platform/darwin.js";
+import { NodeFileOperationProvider } from "../src/platform/shared.js";
 import type { RuntimePaths } from "../src/platform/types.js";
 import { ConfigStore, validateConfig } from "../src/storage.js";
 
@@ -103,13 +103,13 @@ test("config store writes the private schema without a download path", async () 
   const directory = await mkdtemp(path.join(os.tmpdir(), "xiaomi-config-test-"));
   try {
     const paths = pathsFor(directory);
-    const store = new ConfigStore(paths, new DarwinFileOperationProvider());
+    const store = new ConfigStore(paths, new NodeFileOperationProvider());
     const loaded = await store.load();
     const persisted = JSON.parse(await readFile(paths.configFile, "utf8")) as Record<string, unknown>;
     assert.equal(loaded.schemaVersion, 1);
     assert.equal(loaded.videoStorage, "data-share");
     assert.equal(loaded.schedule.catchUpOnStart, false);
-    assert.equal((await stat(paths.configFile)).mode & 0o777, 0o600);
+    if (process.platform !== "win32") assert.equal((await stat(paths.configFile)).mode & 0o777, 0o600);
     assert.equal(persisted.schemaVersion, 1);
     assert.equal(persisted.videoStorage, "data-share");
     assert.equal("downloadRoot" in persisted, false);

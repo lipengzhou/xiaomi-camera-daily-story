@@ -22,7 +22,7 @@ export class NodeFileOperationProvider implements FileOperationProvider {
   }
 }
 
-export class LinuxFileTimeProvider implements FileTimeProvider {
+export class NodeFileTimeProvider implements FileTimeProvider {
   async setTimes(file: string, date: Date): Promise<FileTimeResult> {
     await utimes(file, date, date);
     return {
@@ -32,3 +32,5 @@ export class LinuxFileTimeProvider implements FileTimeProvider {
     };
   }
 }
+
+export class LinuxFileTimeProvider extends NodeFileTimeProvider {}

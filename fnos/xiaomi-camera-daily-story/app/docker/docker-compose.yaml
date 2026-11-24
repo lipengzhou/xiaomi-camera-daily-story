@@ -1,6 +1,6 @@
 services:
   app:
-    image: xiaomi-camera-daily-story:0.1.7
+    image: xiaomi-camera-daily-story:0.1.8
     container_name: xiaomi-camera-daily-story-app
     restart: unless-stopped
     user: "${TRIM_UID}:${TRIM_GID}"

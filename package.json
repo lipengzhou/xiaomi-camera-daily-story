@@ -1,6 +1,6 @@
 {
   "name": "xiaomi-camera-daily-story-sync",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "private": true,
   "description": "面向飞牛 fnOS 的米家摄像头每日故事自动同步工具",
   "license": "MIT",
@@ -10,16 +10,26 @@
     "node": ">=20.11"
   },
   "scripts": {
+    "version:sync": "node scripts/workflow.mjs sync",
+    "postversion": "npm run version:sync",
+    "predev": "npm run version:sync && node scripts/dev-env.mjs",
     "dev": "tsx watch src/index.ts",
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
-    "test": "tsx --test test/*.test.ts",
-    "test:container": "tsx --test container-test/*.test.ts",
-    "check": "npm run build && npm test && node --check public/app.js",
-    "fpk:build": "fnpack build --directory fnos/xiaomi-camera-daily-story"
+    "test": "node scripts/test.mjs",
+    "test:container": "node scripts/test.mjs container-test",
+    "precheck": "npm run version:sync",
+    "check": "npm run build && npm test && node --check public/app.js && node --check scripts/workflow.mjs && node --check scripts/dev-env.mjs && node --check scripts/test.mjs",
+    "test:media:docker": "node scripts/workflow.mjs media",
+    "test:docker": "node scripts/workflow.mjs docker-test",
+    "fpk:build": "node scripts/workflow.mjs fpk",
+    "fpk:test:build": "node scripts/workflow.mjs test-build",
+    "fpk:test:deploy": "node scripts/workflow.mjs test-deploy",
+    "release:build": "node scripts/workflow.mjs release"
   },
   "dependencies": {
     "@fastify/static": "^10.1.11",
+    "dotenv": "^18.0.10",
     "fastify": "^5.12.8",
     "fetch-cookie": "^3.2.0",
     "tough-cookie": "^6.1.0"

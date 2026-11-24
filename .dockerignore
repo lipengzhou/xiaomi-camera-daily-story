@@ -7,9 +7,9 @@ coverage
 *.log
 .env
 .env.*
+!.env.example
 *.mp4
 *.m3u8
-fnos
 .github
 *.fpk
 *.tar
